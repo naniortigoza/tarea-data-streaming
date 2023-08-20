@@ -1,0 +1,78 @@
+# Iniciamos el clúster de Redpanda
+
+docker-compose up -d
+
+# Ejecutamos el siguiente comando para acceder a la línea de comando del contenedor Redpanda Docker:
+
+docker exec -it redpanda /bin/sh
+
+# Luego ejecutamos el siguiente comando para crear un topic finn_trades
+
+rpk topic create finn_trades --brokers=localhost:9092
+
+# Salimos del contenedor de Redpanda
+
+exit
+
+# Creamos un entorno virtual, activamos e instalamos las dependencias de Python
+
+python3 -m venv env
+env/Scripts/Activate
+pip install --upgrade pip
+pip install kafka-python
+pip install websocket-client
+
+# Ejecutamos el siguiente comando en otra ventana de terminal para producir mensajes de cadena para el tema finn_trades
+python producer.py
+
+# Para iniciar ksqlDB y acceder a su interfaz, ejecutamos el siguiente comando
+
+docker exec -it ksqldb-cli ksql http://ksqldb-server:8088
+
+# Creamos un STREAM que coincida con los datos de la base de datos como se muestra a continuación:
+CREATE STREAM trades_stream (symbol STRING, price DOUBLE, volume DOUBLE, timestamp STRING) WITH (kafka_topic='finn_trades', value_format='json');
+
+# Ceamos las vistas materializadas para las siguientes consultas: 
+# ¿Cuál fue el promedio ponderado de precio de una unidad por cada uno de los símbolos procesados? 
+CREATE TABLE promedio_ponderado AS
+SELECT symbol,
+       AVG(price) AS avg_price
+FROM trades_stream
+GROUP BY symbol
+EMIT CHANGES;
+
+# ¿Cuántas transacciones se procesaron por símbolo?
+CREATE TABLE transacciones AS
+SELECT symbol,
+       COUNT(symbol) AS transaction
+FROM trades_stream
+GROUP BY symbol
+EMIT CHANGES;
+
+# ¿Cuál fue el máximo precio registrado por símbolo?
+CREATE TABLE precio_maximo AS
+SELECT symbol,
+       MAX(price) AS max_price
+FROM trades_stream
+GROUP BY symbol
+EMIT CHANGES;
+
+# ¿Cuál fue el mínimo precio registrado por símbolo?
+CREATE TABLE precio_minimo AS
+SELECT symbol,
+       MIN(price) AS min_price
+FROM trades_stream
+GROUP BY symbol
+EMIT CHANGES;
+
+# Antes de ejecutar cualquier consulta, configuramos la propiedad a continuación para asegurarnos 
+# de que las consultas se ejecuten desde el principio del topic:
+
+SET 'auto.offset.reset' = 'earliest';
+
+# Para ejecutar las consultas de las vistas materializadas, probamos con los siguientes comando:
+
+select * from promedio_ponderado;
+select * from transacciones;
+select * from precio_maximo;
+select * from precio_minimo;
